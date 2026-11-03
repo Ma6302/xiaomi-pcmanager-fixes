@@ -1,0 +1,16 @@
+00:05:46 === start ===
+00:05:46 elevated=True
+00:05:46 exe exists: True
+00:05:46 BACKUP_REG {8CB2A613-F795-4040-B7D2-8B477D096EC5} v2.33|Action=Allow|Active=TRUE|Dir=In|Protocol=6|App=C:\Program Files\MI\XiaomiPCManager\6.0.0.39\MiSmartShare\MiPlayCastService.exe|Name=MiplayCastService|Desc=Allows MiplayCastService TCP use all port.|
+00:05:46 BACKUP_REG {C1E56137-C2BB-465C-9BB1-A593858B3DEB} v2.33|Action=Allow|Active=TRUE|Dir=In|Protocol=17|App=C:\Program Files\MI\XiaomiPCManager\6.0.0.39\MiSmartShare\MiPlayCastService.exe|Name=MiplayCastService|Desc=Allows MiplayCastService UDP use all port.|
+00:05:52 BEFORE name={8CB2A613-F795-4040-B7D2-8B477D096EC5} disp=MiplayCastService dir=Inbound act=Allow en=True prof=Any proto=TCP prog=C:\Program Files\MI\XiaomiPCManager\6.0.0.39\MiSmartShare\MiPlayCastService.exe desc=Allows MiplayCastService TCP use all port.
+00:05:52 BEFORE name={C1E56137-C2BB-465C-9BB1-A593858B3DEB} disp=MiplayCastService dir=Inbound act=Allow en=True prof=Any proto=UDP prog=C:\Program Files\MI\XiaomiPCManager\6.0.0.39\MiSmartShare\MiPlayCastService.exe desc=Allows MiplayCastService UDP use all port.
+00:05:56 renamed {8CB2A613-F795-4040-B7D2-8B477D096EC5} -> MiPlayCastService
+00:05:58 cleared description {8CB2A613-F795-4040-B7D2-8B477D096EC5}
+00:06:00 renamed {C1E56137-C2BB-465C-9BB1-A593858B3DEB} -> MiPlayCastService
+00:06:02 cleared description {C1E56137-C2BB-465C-9BB1-A593858B3DEB}
+00:06:02 add out TCP failed: 无法使用指定的命名参数解析参数集。发出的一个或多个参数不能一起使用，或者提供的参数数量不足。
+00:06:02 add out UDP failed: 无法使用指定的命名参数解析参数集。发出的一个或多个参数不能一起使用，或者提供的参数数量不足。
+00:06:04 FINAL name={8CB2A613-F795-4040-B7D2-8B477D096EC5} disp=MiPlayCastService dir=Inbound act=Allow en=True prof=Any proto=TCP prog=C:\Program Files\MI\XiaomiPCManager\6.0.0.39\MiSmartShare\MiPlayCastService.exe desc=
+00:06:05 FINAL name={C1E56137-C2BB-465C-9BB1-A593858B3DEB} disp=MiPlayCastService dir=Inbound act=Allow en=True prof=Any proto=UDP prog=C:\Program Files\MI\XiaomiPCManager\6.0.0.39\MiSmartShare\MiPlayCastService.exe desc=
+00:06:05 === done ===
