@@ -2,3 +2,11 @@
 miplay-netwatch.log
 miplay-netwatch.log.old
 *.tmp
+
+# 右键互传：运行期产物
+右键互传/backup/
+右键互传/*.log
+右键互传/build/*.strings.txt
+# 右键互传：从商店包里拷出的原始二进制（可随时从包/上游取回）
+右键互传/MiDrop.Helper.exe
+右键互传/ShellExt.dll
