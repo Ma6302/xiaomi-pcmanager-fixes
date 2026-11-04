@@ -6,7 +6,7 @@
 | 故障 | 表现 | 修法 | 需要管理员 |
 |---|---|---|---|
 | ① 防火墙规则缺失 | 每隔几分钟弹「互联功能需要添加防火墙规则才能正常工作」，点「修复」后消失又再弹 | `fix-miplayservice-fw.ps1` + `fix-miplayservice-fw2.ps1` | 是（UAC） |
-| ② 手机看不到电脑 | 手机「投放到」/妙播列表里没有这台电脑；切网或休眠唤醒后必现 | `miplay-netwatch.ps1`（配合 `install-miplay-netwatch.ps1` 装成开机自启） | 否 |
+| ② 手机看不到电脑 / 列表里出现两条同名设备 | 手机「投放到」/妙播列表里没有这台电脑；切网或休眠唤醒后必现；纯有线环境还会出现两条同名电脑，一条能用、一条空转 | `miplay-netwatch.ps1`（网络变化后重启妙播）+ `set-iftype-mode.ps1`（三处 `IfType` 身份统一，守护会自动调用） | 装守护要（计划任务，最高权限） |
 | ③ 右键「使用小米互传发送」白图标 / 点了没反应 | 装了 MiDrop Helper 后，菜单项是空白纸张图标，点它毫无反应（6.x 上） | 改造 `MiDrop.Helper.exe` + `ShellExt.dll` 并替换进 MSIX 包，见 [`右键互传\`](右键互传/MiDrop-Helper适配6.x-改造说明.md) | 是（UAC） |
 
 > 脚本里的注释、日志都是中文；两个修复互相独立，可以只取其中一个。
@@ -100,35 +100,81 @@ ServerApp::Run ... mode:[SPEAKER] idm lived:[1]
 手动验证：任务管理器里结束 `MiPCAudio.exe`，它会被父进程 `MiSmartShareHost.exe`
 在 1–2 秒内重新拉起，日志里出现 `register service success id` 即代表手机端又能看到这台电脑。
 
-### 修复：网络守护
-把「重启 `MiPCAudio.exe`」自动化。守护每 15 秒比对一次网络签名（活动的 IPv4 列表），
-出现以下情况就重启 `MiPCAudio.exe`，并校验新进程是否注册成功：
+### 根因之二：两套发布机制 + 三处 `IfType`（2026-11 补全）
+
+上面那条是「完全不显示」。**纯有线**（Wi-Fi 断开）环境下还有第二种表现：手机列表里出现
+**两条同名电脑**，一条点进去正常播放、另一条转圈几十秒后自动跳回前一条。
+
+原因是电脑同时用**两套机制**把自己发布成音频目标，两套身份都取自「某张网卡的 MAC」：
+
+| 机制 | 承载进程 | 身份来源 |
+|---|---|---|
+| Lyra / netbus（`type8`） | `MiPCAudio.exe` | `MiSmartShare\MiPCAudio.exe` 里挑网卡的分支 |
+| IDM（`type2`） | `idmruntime.dll`（随进程加载） | `MiSmartShare\idmruntime.dll` 里两处挑网卡的分支 |
+
+挑选网卡的判断是 `IfType == 0x47`（`IF_TYPE_IEEE80211`，Wi-Fi），**一共三处**：
+
+```
+MiPCAudio.exe   41 83 79 64 ?? 75       ; cmp dword [r9+0x64], 0x47 ; 75 = jne
+idmruntime.dll  41 83 7e 64 ?? 0F 85    ; cmp dword [rsi+0x64], 0x47 ; 0F 85 = jne
+idmruntime.dll  83 7b 64 ?? 75          ; cmp dword [rbx+0x64], 0x47
+```
+
+（`??` = `0x47` 无线 / `0x06` 以太网；原厂三处都是 `0x47`。站点位置由脚本按
+「前缀 + 字节 + 后缀」自动定位，**不写死偏移**，所以升级换版本也能用。）
+
+三处必须**一致**：只要有一处分歧，两套机制算出的身份就不同，手机就会把它当成两台设备。
+网上流传的酷安补丁只改第一处 → 必然出现「两条同名设备」。
+反面也成立：把三处都改成 `0x06` 后，**Wi-Fi 断开时**身份稳定、两条合并为一条；
+但若某天只有 Wi-Fi 没有网线，三处都会找不到「以太网类型」的网卡，又会回到广播失败。
+
+`config.ini` 这条路走不通：exe 里支持的键只有 `mirror.smooth.disable` /
+`mirror.smooth.level` / `mirror.delay.test` / `mirror.mpt.disable` / `mirror.mpt.dbg` /
+`delayTest`，**没有** `deviceID` / 网卡覆盖项（妙播自己的 `InitParam.deviceID` 一直是空的，
+所以手机只能拿 MAC 当 key —— 这也是换身份就会多一条记录的根因）。
+
+### 修复：网络守护（自动切身份）
+
+守护每 15 秒比对一次网络签名（活动的 IPv4 列表 + 活跃介质），出现以下任一情况就：
+**按当前活跃介质把三处 `IfType` 字节统一 → 重启 `MiPCAudio.exe` → 校验 milink 注册**。
 
 - 网络签名变化（插拔网线、Wi-Fi 连上/断开、IP 变更）
 - 检测到休眠/唤醒（真实流逝时间远大于轮询间隔）
-- 上次重启时的网络与当前不一致（重启那一刻链路还在抖动，注册可能落在已消失的网卡上）
+- 上次重启时的网络与当前不一致（注册可能落在已消失的网卡上）
+- **活跃介质（有线 / 无线）与文件里三处 `IfType` 不一致**
 
 ```powershell
-# 安装（不需要管理员）：写启动文件夹快捷方式 + 隐藏启动器，并立即启动一次
-pwsh -File .\install-miplay-netwatch.ps1
+# 安装（会弹 UAC，注册计划任务 MiPlayNetWatch，最高权限、登录时启动、窗口隐藏）
+pwsh -File .\妙播\install-miplay-netwatch.ps1
 
-# 卸载
-pwsh -File .\install-miplay-netwatch.ps1 -Uninstall
+# 卸载（删计划任务；文件里的 IfType 字节不会自动改回，见下一行）
+pwsh -File .\妙播\install-miplay-netwatch.ps1 -Uninstall
+pwsh -File .\妙播\set-iftype-mode.ps1 -Mode wifi     # 还原原厂无线身份
 
-# 手动立刻重启一次妙播服务
-pwsh -File .\miplay-netwatch.ps1 -Oneshot
+# 手动立刻重启一次妙播服务（先按当前介质同步身份）
+pwsh -File .\妙播\miplay-netwatch.ps1 -Oneshot
 
 # 只看不动（预演，不改任何东西）
-pwsh -File .\miplay-netwatch.ps1 -Oneshot -DryRun
+pwsh -File .\妙播\miplay-netwatch.ps1 -Oneshot -DryRun
+
+# 只查/只切身份，不碰守护
+pwsh -File .\妙播\set-iftype-mode.ps1 -Mode status
+pwsh -File .\妙播\set-iftype-mode.ps1 -Mode lan -DryRun
 ```
 
 特点：
 
-- **不修改任何厂商文件**，电脑管家升级也不会失效
-- 单实例互斥体（`Local\MiPlayNetWatch_<用户名>`），重复启动会自己退出
+- 单实例互斥体（`Local\MiPlayNetWatch_<用户名>`），`-Oneshot` 也会让路给常驻实例
 - 45 秒去抖，避免网络抖动时反复重启
-- 有 fallback：父进程没把 `MiPCAudio.exe` 拉起来时只记日志，不动别的进程
+- 改字节用「改名 → 复制」法（运行中的 exe 独占写会失败），失败会自动回滚
+- 重启后会检查新进程的启动时间是否晚于改字节时间，早于就再杀一次
+  （否则父进程可能在改字节之前就把新实例拉起来，加载的仍是旧字节）
 - 日志写在脚本同目录 `miplay-netwatch.log`，超过 1 MB 自动轮转成 `.old`
+- 未提权运行时自动降级为「只重启、不改字节」（日志里会写明）
+
+> ⚠️ 这一项**会修改厂商文件**（`MiSmartShare\MiPCAudio.exe` 1 字节 +
+> `MiSmartShare\idmruntime.dll` 2 字节），文件签名因此失效，电脑管家升级/修复后会被覆盖，
+> 需要重跑一次；`set-iftype-mode.ps1 -Mode wifi` 可随时还原成原厂字节。
 
 ### 实测记录（本机日志摘录）
 ```
@@ -144,6 +190,26 @@ pwsh -File .\miplay-netwatch.ps1 -Oneshot -DryRun
 [2026-11-03 00:41:14] 重启 MiPCAudio.exe pid=8704
 [2026-11-03 00:41:15] 新 MiPCAudio.exe pid=26268
 [2026-11-03 00:41:16] milink 注册校验：成功
+```
+
+身份联动切换的实测记录（2026-11-04，纯有线环境）：
+
+```
+[15:30:09] 当前活跃介质：lan
+[15:30:12] 发现身份与活跃介质不一致，按 lan 模式纠正并重启妙播
+[15:30:24] 已改写 idmruntime.dll：2 处 -> lan 模式（rename）
+[15:30:25] 已改写 MiPCAudio.exe：1 处 -> lan 模式（rename）
+[15:30:27] 复核 三处 value=0x06 (lan)  完成：三处已统一为 lan 模式
+[15:30:29] milink 注册校验：成功
+```
+
+改前妙播日志里每次启动都有 `DiscoveryLyraImpl: [startAdvertising:387]get mac address failed`
+且没有 `advertising result listener`；三处统一并重启后变成：
+
+```
+I DiscoveryLyraImpl: [IAdvertisingResultListenerImpl::OnResult:497]advertising result listener code:0
+I DiscoveryLyraImpl::registerChannel:451 register channel result:[0]
+register service success id : 00000000
 ```
 
 修复后妙播可以走**有线**（不必像网上一些教程那样要求断开网线只用 Wi-Fi）：
@@ -199,21 +265,21 @@ pwsh -File .\右键互传\apply-midrop-helper.ps1 -Restore
 
 ## 关于「改 MiPCAudio.exe 强制走有线」的补丁
 
-网上流传一种做法（酷安等）：把 `MiPCAudio.exe` 里选择网卡时的
-`IfType` 比较从 `0x47`（`IF_TYPE_IEEE80211`，Wi-Fi）改成 `0x06`
-（`IF_TYPE_ETHERNET_CSMACD`，以太网）。
+网上流传一种做法（酷安等）：把 `MiPCAudio.exe` 里选择网卡时的 `IfType` 比较从 `0x47`
+（`IF_TYPE_IEEE80211`，Wi-Fi）改成 `0x06`（`IF_TYPE_ETHERNET_CSMACD`，以太网）。
 
-本仓库**没有**采用它，原因：
+**只改这一处是错的**，它会让手机里多出一条同名设备（见上面「根因之二」）：
 
-- 反汇编确认该判断在 6.0.0.39 里位于 `MiPCAudio.exe`
-  VA `0x140091A70` / 文件偏移 `0x90E70`，字节 `41 83 79 64 47`
-  （`cmp dword ptr [r9+0x64], 0x47`，`r9` 来自 `GetAdaptersAddresses` 的 `IP_ADAPTER_ADDRESSES`）
-- 但实测 6.0.0.39 在有线网络下**本来就能正常投放**，上述故障的真因是「网络变化后不重新注册」，
-  不是网卡类型筛选
-- 打了这个补丁之后，只插网线不连 Wi-Fi 的场景能用，但**只剩 Wi-Fi 时反而会失效**
-  （正好反过来的问题），而且会破坏文件签名、被升级覆盖
+- 该判断在 6.0.2.19 的 `MiPCAudio.exe` 里位于文件偏移 `0x90E70`
+  （VA `0x140091A70`，字节 `41 83 79 64 47`，`cmp dword ptr [r9+0x64], 0x47`，
+  `r9` 来自 `GetAdaptersAddresses` 的 `IP_ADAPTER_ADDRESSES`）
+- 但同一份身份判断在 `idmruntime.dll` 里还有**两处**，只改 `MiPCAudio.exe` 就会让
+  Lyra 与 IDM 两套发布机制算出不同的身份 → 手机显示两条
+- 实测：单改一处时手机确实能看到电脑并能播放，但列表里恒为两条；把三处统一后才回到一条
 
-如果你确实需要它，`patchbytes-crop.png` 是对应位置的原始字节截图，可自行对照修改（风险自负）。
+本仓库把它做成了可逆的三处联动切换（见 `妙播\set-iftype-mode.ps1`，由守护自动调用）：
+`-Mode lan` 三处写 `0x06`、`-Mode wifi` 三处写 `0x47`（原厂状态）、`-Mode status` 只读。
+`妙播\patchbytes-crop.png` 是对应位置的原始字节截图，供手动核对。
 
 ---
 
@@ -221,14 +287,21 @@ pwsh -File .\右键互传\apply-midrop-helper.ps1 -Restore
 
 | 文件 | 说明 |
 |---|---|
-| `fix-miplayservice-fw.ps1` | 改名 + 清空 `MiPlayCastService` 两条入站规则的 Name/Description |
-| `fix-miplayservice-fw2.ps1` | 用 `netsh advfirewall` 补出站 TCP/UDP 两条规则 |
+| `fix-miplayservice-fw.ps1` | 改名 + 清空 `MiPlayCastService` 两条入站规则的 Name/Description（路径写死 6.0.0.39） |
+| `fix-miplayservice-fw2.ps1` | 用 `netsh advfirewall` 补出站 TCP/UDP 两条规则（路径写死 6.0.0.39） |
+| `fix-miplayservice-fw-auto.ps1` | **版本无关版**：自动探测 `C:\Program Files\MI\XiaomiPCManager` 下最高版本目录，规范化 + 补齐四条规则，幂等 |
 | `restore-miplayservice-fw.ps1` | 回滚防火墙改动 |
 | `fix-result.log` / `fix-result2.log` | 两次执行的前后快照与原始规则字符串 |
-| `miplay-netwatch.ps1` | 网络守护：网络变化 / 休眠唤醒 → 重启 `MiPCAudio.exe` 并校验注册 |
-| `install-miplay-netwatch.ps1` | 安装/卸载启动项（`-Uninstall`） |
-| `miplay-netwatch-launcher.vbs` | 隐藏窗口启动器（Unicode 保存，中文路径可用） |
-| `patchbytes-crop.png` | 上述 exe 补丁位置的截图，仅供参考 |
+| `妙播\miplay-netwatch.ps1` | 网络守护：网络变化 / 休眠唤醒 / 介质与身份不一致 → 重启 `MiPCAudio.exe` 并校验注册 |
+| `妙播\install-miplay-netwatch.ps1` | 安装/卸载计划任务 `MiPlayNetWatch`（`-Uninstall`），需 UAC；安装时会自动清掉旧版留下的启动项快捷方式与 `miplay-netwatch-launcher.vbs` |
+| `妙播\set-iftype-mode.ps1` | 三处 `IfType` 联动切换：`-Mode lan` / `wifi` / `status`，支持 `-DryRun` / `-Clean` |
+| `妙播\apply-mac-patch.ps1` / `apply-mac-patch2.ps1` | 早期「只改一处」补丁脚本（**已废弃**，仅保留过程证据） |
+| `妙播\restore-mac-patch.ps1` / `restore-mac-patch2.ps1` | 早期回滚脚本（`-patch2` 用改名替换法，可参考） |
+| `妙播\hide-mipcaudio.ps1` / `unhide-mipcaudio.ps1` | 诊断用：把 `MiPCAudio.exe` 改名藏起来 / 改回，用来确认「手机上的条目到底由谁产生」 |
+| `妙播\stop-cast-service.ps1` / `start-cast-service.ps1` | 诊断用：临时停/起 `MiPlayCastService`（SYSTEM 服务，需 UAC） |
+| `妙播\check-net-state.ps1` | 一眼看网络：网卡 / IPv4 / Wi-Fi 状态 / 8899 连接 |
+| `妙播\dup-watch.ps1` | 诊断用：记录手机上与本机的 TCP 连接变化 + 妙播新会话 |
+| `妙播\patchbytes-crop.png` | exe 补丁位置的原始字节截图，供手动核对 |
 | `右键互传\MiDrop-Helper适配6.x-改造说明.md` | ③ 的完整说明：链路、逆向协议、ShellExt 两处不兼容、构建、部署、验证 |
 | `右键互传\patch\XiaomiPcManagerHelper.cs` | 改造后的源码（唯一改动的源文件，+187/−6 行） |
 | `右键互传\MiDrop.Helper.patched-1.0.12.exe` | 编译好的单文件 AOT 成品（4,444,672 字节） |
@@ -242,7 +315,15 @@ pwsh -File .\右键互传\apply-midrop-helper.ps1 -Restore
 
 ## 注意
 
-- 脚本按 **6.0.0.39** 的路径和行为编写（`C:\Program Files\MI\XiaomiPCManager\6.0.0.39\`），
-  其它版本路径不同，需要改脚本里的常量；防火墙那部分只依赖进程名和路径，逻辑通用
+- 防火墙那四个脚本里，`fix-miplayservice-fw.ps1` / `fix-miplayservice-fw2.ps1` 的路径写死
+  **6.0.0.39**；换版本请用 `fix-miplayservice-fw-auto.ps1`（自动探测最新版本目录）。
+  `妙播\` 下的脚本都不写死版本，运行时自动定位 `C:\Program Files\MI\XiaomiPCManager\<最高版本>`
+- **6.0.2.19 已由官方修掉防火墙那个 bug**（安装器自己写全了 4 条规则），升级到这个版本后
+  不需要再跑防火墙修复脚本；但妙播那两条问题在 6.0.2.19 上依然存在
 - 防火墙脚本会修改系统防火墙规则，执行前请确认你接受这个改动，并可用 `restore-*.ps1` 回滚
+- 妙播守护会改 `MiPCAudio.exe`（1 字节）+ `idmruntime.dll`（2 字节）以统一发现身份，
+  可用 `set-iftype-mode.ps1 -Mode wifi` 还原；守护未提权运行时会自动跳过改字节
 - 全部脚本以 MIT 协议提供，按「现状」提供、无任何担保；出问题请先看日志再动手
+- 本文的结论来自本机 6.0.0.39 / 6.0.2.19 的实测日志与反汇编，网上同类方案
+  （酷安单字节补丁、[Higanoneko/MiPCManager_Patch](https://github.com/Higanoneko/MiPCManager_Patch)）
+  的差异与取舍已在各节里写明

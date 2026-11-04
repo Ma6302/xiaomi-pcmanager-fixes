@@ -3,6 +3,19 @@ miplay-netwatch.log
 miplay-netwatch.log.old
 *.tmp
 
+# 妙播：运行时日志
+妙播/*.log
+
+# 妙播：原厂 exe 备份与改字节过程中的临时文件（4.6 MB，可从安装包取回）
+妙播/MiPCAudio.exe.orig*
+妙播/MiPCAudio.exe.patched-*
+妙播/*.orig.bak
+妙播/*.swap-*
+妙播/*.new
+
+# 参考仓库（第三方下载，仅供本地对照，不入库）
+ref/
+
 # 右键互传：运行期产物
 右键互传/backup/
 右键互传/*.log
