@@ -10,3 +10,7 @@ miplay-netwatch.log.old
 # 右键互传：从商店包里拷出的原始二进制（可随时从包/上游取回）
 右键互传/MiDrop.Helper.exe
 右键互传/ShellExt.dll
+
+# 右键互传：verify-shellext 的构建产物
+右键互传/verify-shellext/bin/
+右键互传/verify-shellext/obj/

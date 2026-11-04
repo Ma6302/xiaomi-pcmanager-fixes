@@ -1,13 +1,13 @@
 # 小米电脑管家修复脚本
 
-针对 **小米电脑管家 6.0.0.39**（`C:\Program Files\MI\XiaomiPCManager\6.0.0.39`）在 Windows 上的两个实际故障，
+针对 **小米电脑管家 6.0.0.39 / 6.0.2.19**（`C:\Program Files\MI\XiaomiPCManager\<版本>`）在 Windows 上的三个实际故障，
 都是靠日志定位根因后写的小脚本，**不修改任何厂商文件**（除了用 Windows 自带防火墙命令改防火墙规则）。
 
 | 故障 | 表现 | 修法 | 需要管理员 |
 |---|---|---|---|
 | ① 防火墙规则缺失 | 每隔几分钟弹「互联功能需要添加防火墙规则才能正常工作」，点「修复」后消失又再弹 | `fix-miplayservice-fw.ps1` + `fix-miplayservice-fw2.ps1` | 是（UAC） |
 | ② 手机看不到电脑 | 手机「投放到」/妙播列表里没有这台电脑；切网或休眠唤醒后必现 | `miplay-netwatch.ps1`（配合 `install-miplay-netwatch.ps1` 装成开机自启） | 否 |
-| ③ 右键「使用小米互传发送」没反应 | 装了 MiDrop Helper 后，资源管理器里点这个右键菜单毫无反应（6.x 上） | 改造 `MiDrop.Helper.exe` 并替换进 MSIX 包，见 [`右键互传\`](右键互传/MiDrop-Helper适配6.x-改造说明.md) | 是（UAC） |
+| ③ 右键「使用小米互传发送」白图标 / 点了没反应 | 装了 MiDrop Helper 后，菜单项是空白纸张图标，点它毫无反应（6.x 上） | 改造 `MiDrop.Helper.exe` + `ShellExt.dll` 并替换进 MSIX 包，见 [`右键互传\`](右键互传/MiDrop-Helper适配6.x-改造说明.md) | 是（UAC） |
 
 > 脚本里的注释、日志都是中文；两个修复互相独立，可以只取其中一个。
 
@@ -154,29 +154,45 @@ TCP 192.168.5.171(以太网):8899 <- 192.168.5.170(手机):53612  Established
 
 ---
 
-## ③ 右键「使用小米互传发送」点了没反应（MiDrop Helper）
+## ③ 右键「使用小米互传发送」白图标 / 点了没反应（MiDrop Helper）
 
 第三方开源工具 **MiDrop Helper**（商店版 1.0.7.0）给资源管理器加了「使用小米互传发送」的
-Win11 现代右键菜单，但它内部用的还是 5.x 的 `WM_COPYDATA(74)` 通知方式，6.x 上点了**完全无反应**。
+Win11 现代右键菜单。在 6.x 上它有两个毛病，而且**分属两个不同的文件**：
 
-本仓库的做法：从上游源码改造 `XiaomiPcManagerHelper.cs`（+187/−6 行），改用 6.x 官方的
-`--contextmenu_dropfile=payload:<base64("parent_dir:<dir>|<文件…>")>` 协议，编译成单文件 AOT
-`MiDrop.Helper.exe`，再用脚本替换进 MSIX 包（包里的 `ShellExt.dll` 用
+1. **图标是空白纸张**：出厂 `ShellExt.dll` 把图标硬编码成「注册表 CLSID 目录 +
+   `XiaomiPcManager.exe,-32512`」，6.x 把主程序挪到了上一层，这个路径根本不存在。
+2. **点了什么都没发生**：出厂 `ShellExt.dll` 启动 helper 时只传 `--share-files`、**不传 `--target`**，
+   新版 helper 只认 `--target XiaomiShare`，于是既不启动产品也不发送；
+   哪怕 helper 换成改造版也一样 —— 这是「只换 exe 仍然没反应」的原因。
+
+另外 helper 自身还有三条 6.x 不兼容（不处理 `WM_COPYDATA(74)`、窗口类名被产品占用、
+找不到可执行文件），对应改成 6.x 官方的
+`--contextmenu_dropfile=payload:<base64("parent_dir:<dir>|<文件…>")>` 协议。
+
+本仓库的做法：从上游源码改造 `XiaomiPcManagerHelper.cs`（+187/−6 行）+ 用上游 1.0.12 的
+`ShellExt.dll`，编译两个 NativeAOT 成品，再用脚本替换进 MSIX 包（包里的 `ShellExt.dll` 用
 `PackageInstallLocation` 拼 helper 路径，绕不开）。
 
 ```powershell
-# 安装（弹 UAC；先备份原件到 右键互传\backup\）
-pwsh -File .\右键互传\apply-midrop-helper.ps1 -Source .\右键互传\MiDrop.Helper.patched-1.0.12.exe
+# 安装（弹 UAC；两个文件都换；先备份原件到 右键互传\backup\）
+pwsh -File .\右键互传\apply-midrop-helper.ps1 `
+    -Source .\右键互传\MiDrop.Helper.patched-1.0.12.exe `
+    -ShellExtSource .\右键互传\ShellExt.patched-1.0.12.dll
+
+# 装完重启资源管理器让 dllhost/图标缓存刷新
+Stop-Process -Name explorer -Force; Start-Sleep 3; Start-Process explorer.exe
 
 # 还原出厂原件
 pwsh -File .\右键互传\apply-midrop-helper.ps1 -Restore
 ```
 
-完整链路、逆向出来的协议、构建步骤、EFS/所有者两个坑和验证日志都在
+完整链路、逆向出来的协议、`ShellExt.dll` 的两处不兼容及其验证工具（`右键互传\verify-shellext\`，
+不用右键、直接把 DLL 加载起来读 `GetIcon()`）、构建步骤、EFS/所有者两个坑和验证日志都在
 [`右键互传\MiDrop-Helper适配6.x-改造说明.md`](右键互传/MiDrop-Helper适配6.x-改造说明.md)。
 
-> ⚠️ 这一项**确实修改了商店包里的文件**（只替换 `MiDrop.Helper\MiDrop.Helper.exe` 一个文件），
-> 与上面两项「不动厂商文件」的原则不同；商店更新 MiDrop Helper 后会覆盖，需要重跑一次。
+> ⚠️ 这一项**确实修改了商店包里的文件**（替换 `MiDrop.Helper\MiDrop.Helper.exe` 和
+> `ShellExt\ShellExt.dll` 两个文件），与上面两项「不动厂商文件」的原则不同；
+> 商店更新 MiDrop Helper 后会覆盖，需要重跑一次。
 > 产品本体（`C:\Program Files\MI\XiaomiPCManager`）依然一个字节都没动。
 
 ---
@@ -213,11 +229,13 @@ pwsh -File .\右键互传\apply-midrop-helper.ps1 -Restore
 | `install-miplay-netwatch.ps1` | 安装/卸载启动项（`-Uninstall`） |
 | `miplay-netwatch-launcher.vbs` | 隐藏窗口启动器（Unicode 保存，中文路径可用） |
 | `patchbytes-crop.png` | 上述 exe 补丁位置的截图，仅供参考 |
-| `右键互传\MiDrop-Helper适配6.x-改造说明.md` | ③ 的完整说明：链路、逆向协议、构建、部署、验证 |
-| `右键互传\patch\XiaomiPcManagerHelper.cs` | 改造后的源码（唯一改动的文件，+187/−6 行） |
+| `右键互传\MiDrop-Helper适配6.x-改造说明.md` | ③ 的完整说明：链路、逆向协议、ShellExt 两处不兼容、构建、部署、验证 |
+| `右键互传\patch\XiaomiPcManagerHelper.cs` | 改造后的源码（唯一改动的源文件，+187/−6 行） |
 | `右键互传\MiDrop.Helper.patched-1.0.12.exe` | 编译好的单文件 AOT 成品（4,444,672 字节） |
-| `右键互传\apply-midrop-helper.ps1` | 装/卸（`-Restore`）进 MSIX 包的脚本，需管理员 |
-| `右键互传\backup\MiDrop.Helper.exe.orig-1.0.7.0` | 出厂 1.0.7.0 原件备份（安装时自动生成，不入库） |
+| `右键互传\ShellExt.patched-1.0.12.dll` | 编译好的右键菜单扩展 AOT DLL（2,288,640 字节，图标 + 传 `--target`） |
+| `右键互传\verify-shellext\` | 验证工具：加载 `ShellExt.dll` 直接读 `GetIcon()`，不用真的右键 |
+| `右键互传\apply-midrop-helper.ps1` | 装/卸（`-Restore`）进 MSIX 包的脚本，需管理员；支持 `-Source` / `-ShellExtSource` |
+| `右键互传\backup\*.orig-1.0.7.0` | 出厂 1.0.7.0 两个原件备份（安装时自动生成，不入库） |
 | `右键互传\小米互传Win11现代右键菜单点击无反应-修复方案.md` | 早期排查记录（含三条根因与日志证据） |
 
 ---
