@@ -310,6 +310,22 @@ pwsh -File .\右键互传\apply-midrop-helper.ps1 -Restore
 | `右键互传\apply-midrop-helper.ps1` | 装/卸（`-Restore`）进 MSIX 包的脚本，需管理员；支持 `-Source` / `-ShellExtSource` |
 | `右键互传\backup\*.orig-1.0.7.0` | 出厂 1.0.7.0 两个原件备份（安装时自动生成，不入库） |
 | `右键互传\小米互传Win11现代右键菜单点击无反应-修复方案.md` | 早期排查记录（含三条根因与日志证据） |
+| `NOTICE.md` | 第三方组件与许可证声明（MiDrop Helper 的上游版权、涉及哪些文件、哪些东西不在本仓库） |
+
+---
+
+## 第三方组件与许可证
+
+本仓库**原创**的脚本与文档是 MIT（[`LICENSE`](LICENSE)，Copyright (c) 2026 Ma6302）；
+但 ③ 右键互传用到的
+[**MiDrop Helper**](https://github.com/cnbluefire/MiDropShellExtForWindows11)
+是 **cnbluefire** 的 MIT 项目（我们基于 1.0.12 改造并重新编译），其版权声明、许可证全文、
+以及本仓库里到底哪些文件属于它的衍生件，统一登记在 [`NOTICE.md`](NOTICE.md)。
+
+- 本仓库**不包含**任何小米官方二进制（`MiPCAudio.exe`、`idmruntime.dll`、出厂版 `MiDrop.Helper.exe` /
+  `ShellExt.dll`）；脚本只在你本机对已安装的文件打补丁，原件由脚本运行时备份
+- [Higanoneko/MiPCManager_Patch](https://github.com/Higanoneko/MiPCManager_Patch) 是 **GPL-3.0**，
+  本仓库不含其代码，只在对比不同做法时引用链接
 
 ---
 
@@ -323,7 +339,15 @@ pwsh -File .\右键互传\apply-midrop-helper.ps1 -Restore
 - 防火墙脚本会修改系统防火墙规则，执行前请确认你接受这个改动，并可用 `restore-*.ps1` 回滚
 - 妙播守护会改 `MiPCAudio.exe`（1 字节）+ `idmruntime.dll`（2 字节）以统一发现身份，
   可用 `set-iftype-mode.ps1 -Mode wifi` 还原；守护未提权运行时会自动跳过改字节
-- 全部脚本以 MIT 协议提供，按「现状」提供、无任何担保；出问题请先看日志再动手
+- 本仓库原创脚本以 MIT 协议提供（第三方组件的版权与许可见 `NOTICE.md`），
+  按「现状」提供、无任何担保；出问题请先看日志再动手
 - 本文的结论来自本机 6.0.0.39 / 6.0.2.19 的实测日志与反汇编，网上同类方案
   （酷安单字节补丁、[Higanoneko/MiPCManager_Patch](https://github.com/Higanoneko/MiPCManager_Patch)）
   的差异与取舍已在各节里写明
+- ⏳ **时效说明（2026-11 复核）**：`Higanoneko/MiPCManager_Patch` 已发布 **2.0.9（2026-11-06）**，
+  提交说明为「Adapt MiPCManager 6.0 / Remove Experimental Feature」，CLI 现为
+  `status` / `apply` / `revert`，并另有 `audio apply --mode lan|wifi` 切换音频流转模式。
+  本文写作时对照的是它的旧版本，因此「只改一处 `IfType` → 手机上出现两条同名设备」
+  这条结论**只对旧版本成立**；新版是否也改成三处联动、或换了别的实现，尚未复核。
+  若你打算用它的方案，请以它仓库的最新说明为准。它 README 里给出的重复设备绕法是：
+  在手机端把该电脑「移除 / 忘记」后重新配对
