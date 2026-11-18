@@ -10,7 +10,8 @@ MiDrop Helper 是第三方开源项目 [cnbluefire/MiDropShellExtForWindows11](h
 本目录的做法是：**从源码改造，再把改好的两个文件放回包里**——
 `MiDrop.Helper.exe`（真正发文件的进程）和 `ShellExt.dll`（现代右键菜单的 COM 扩展，图标和点击都由它提供）。
 
-- 改造后的源码只有 1 个文件、+187 / −6 行：`patch\XiaomiPcManagerHelper.cs`
+- 改造后的源码只有 1 个文件、+186 / −5 行（`git diff --no-index` 对上游 1.0.12 的
+  `src/MiDrop.Core/XiaomiPcManagerHelper.cs` 实测）：`patch\XiaomiPcManagerHelper.cs`
   （`ShellExt.dll` 用上游 1.0.12 的代码，不需要改 —— 见第二节原因）
 - 编译好的成品：
   - `MiDrop.Helper.patched-1.0.12.exe`（4,444,672 字节，单文件 NativeAOT）

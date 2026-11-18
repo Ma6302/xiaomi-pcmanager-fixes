@@ -235,7 +235,7 @@ Win11 现代右键菜单。在 6.x 上它有两个毛病，而且**分属两个�
 找不到可执行文件），对应改成 6.x 官方的
 `--contextmenu_dropfile=payload:<base64("parent_dir:<dir>|<文件…>")>` 协议。
 
-本仓库的做法：从上游源码改造 `XiaomiPcManagerHelper.cs`（+187/−6 行）+ 用上游 1.0.12 的
+本仓库的做法：从上游源码改造 `XiaomiPcManagerHelper.cs`（+186/−5 行）+ 用上游 1.0.12 的
 `ShellExt.dll`，编译两个 NativeAOT 成品，再用脚本替换进 MSIX 包（包里的 `ShellExt.dll` 用
 `PackageInstallLocation` 拼 helper 路径，绕不开）。
 
@@ -303,10 +303,11 @@ pwsh -File .\右键互传\apply-midrop-helper.ps1 -Restore
 | `妙播\dup-watch.ps1` | 诊断用：记录手机上与本机的 TCP 连接变化 + 妙播新会话 |
 | `妙播\patchbytes-crop.png` | exe 补丁位置的原始字节截图，供手动核对 |
 | `右键互传\MiDrop-Helper适配6.x-改造说明.md` | ③ 的完整说明：链路、逆向协议、ShellExt 两处不兼容、构建、部署、验证 |
-| `右键互传\patch\XiaomiPcManagerHelper.cs` | 改造后的源码（唯一改动的源文件，+187/−6 行） |
+| `右键互传\patch\XiaomiPcManagerHelper.cs` | 改造后的源码（唯一改动的源文件，对上游 1.0.12 为 +186/−5 行） |
 | `右键互传\MiDrop.Helper.patched-1.0.12.exe` | 编译好的单文件 AOT 成品（4,444,672 字节） |
 | `右键互传\ShellExt.patched-1.0.12.dll` | 编译好的右键菜单扩展 AOT DLL（2,288,640 字节，图标 + 传 `--target`） |
 | `右键互传\verify-shellext\` | 验证工具：加载 `ShellExt.dll` 直接读 `GetIcon()`，不用真的右键 |
+| `右键互传\build\dstrings.py` | 逆向时的辅助脚本：从二进制里提 ASCII/UTF-16 字符串（带偏移），用来找协议关键字 |
 | `右键互传\apply-midrop-helper.ps1` | 装/卸（`-Restore`）进 MSIX 包的脚本，需管理员；支持 `-Source` / `-ShellExtSource` |
 | `右键互传\backup\*.orig-1.0.7.0` | 出厂 1.0.7.0 两个原件备份（安装时自动生成，不入库） |
 | `右键互传\小米互传Win11现代右键菜单点击无反应-修复方案.md` | 早期排查记录（含三条根因与日志证据） |
